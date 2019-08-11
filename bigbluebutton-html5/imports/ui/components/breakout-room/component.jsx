@@ -1,8 +1,8 @@
-import React, { Component } from 'react';
-
+import React, { PureComponent } from 'react';
 import { defineMessages, injectIntl } from 'react-intl';
 import _ from 'lodash';
 import Button from '/imports/ui/components/button/component';
+import { Session } from 'meteor/session';
 import { styles } from './styles';
 import BreakoutRoomContainer from './breakout-remaining-time/container';
 
@@ -49,7 +49,7 @@ const intlMessages = defineMessages({
   },
 });
 
-class BreakoutRoom extends Component {
+class BreakoutRoom extends PureComponent {
   constructor(props) {
     super(props);
     this.renderBreakoutRooms = this.renderBreakoutRooms.bind(this);
@@ -92,6 +92,7 @@ class BreakoutRoom extends Component {
   }
 
   getBreakoutURL(breakoutId) {
+    Session.set('lastBreakoutOpened', breakoutId);
     const { requestJoinURL, breakoutRoomUser } = this.props;
     const { waiting } = this.state;
     const hasUser = breakoutRoomUser(breakoutId);
@@ -180,6 +181,7 @@ class BreakoutRoom extends Component {
     const {
       breakoutRooms,
       intl,
+      getUsersByBreakoutId,
     } = this.props;
 
     const {
@@ -193,7 +195,7 @@ class BreakoutRoom extends Component {
           {intl.formatMessage(intlMessages.breakoutRoom, breakout.sequence.toString())}
           <span className={styles.usersAssignedNumberLabel}>
             (
-            {new Set(breakout.users.map(user => user.userId)).size}
+            {getUsersByBreakoutId(breakout.breakoutId).count()}
             )
           </span>
         </span>
@@ -223,7 +225,7 @@ class BreakoutRoom extends Component {
 
   render() {
     const {
-      intl, endAllBreakouts, isModerator, closeBreakoutPanel,
+      isMeteorConnected, intl, endAllBreakouts, isModerator, closeBreakoutPanel,
     } = this.props;
     return (
       <div className={styles.panel}>
@@ -241,6 +243,7 @@ class BreakoutRoom extends Component {
             ? (
               <Button
                 color="primary"
+                disabled={!isMeteorConnected}
                 size="lg"
                 label={intl.formatMessage(intlMessages.endAllBreakouts)}
                 className={styles.endButton}

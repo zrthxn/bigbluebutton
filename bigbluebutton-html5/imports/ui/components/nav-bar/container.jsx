@@ -44,7 +44,7 @@ export default withTracker(() => {
     return hasUnreadMessages;
   };
 
-  Meetings.find({ meetingId: Auth.meetingID }).observeChanges({
+  Meetings.find({ meetingId: Auth.meetingID }, { fields: { recordProp: 1 } }).observeChanges({
     changed: (id, fields) => {
       if (fields.recordProp && fields.recordProp.recording) {
         this.window.parent.postMessage({ response: 'recordingStarted' }, '*');
@@ -56,18 +56,16 @@ export default withTracker(() => {
     },
   });
 
-  const breakouts = Service.getBreakouts();
   const currentUserId = Auth.userID;
   const { connectRecordingObserver, processOutsideToggleRecording } = Service;
   const currentUser = Users.findOne({ userId: Auth.userID });
-  const isExpanded = Session.get('isUserListOpen');
-
+  const openPanel = Session.get('openPanel');
+  const isExpanded = openPanel !== '';
   const amIModerator = mapUser(currentUser).isModerator;
 
   return {
     amIModerator,
     isExpanded,
-    breakouts,
     currentUserId,
     processOutsideToggleRecording,
     connectRecordingObserver,
@@ -75,8 +73,6 @@ export default withTracker(() => {
     presentationTitle: meetingTitle,
     hasUnreadMessages: checkUnreadMessages(),
     isBreakoutRoom: meetingIsBreakout(),
-    getBreakoutByUser: Service.getBreakoutByUser,
-    currentBreakoutUser: Service.getBreakoutUserByUserId(Auth.userID),
     recordProps: meetingRecorded,
     toggleUserList: () => {
       Session.set('isUserListOpen', !isExpanded);

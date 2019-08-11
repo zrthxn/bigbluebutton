@@ -1,6 +1,6 @@
 import Users from '/imports/api/users';
 import GroupChat from '/imports/api/group-chat';
-import GroupChatMsg from '/imports/api/group-chat-msg';
+import { GroupChatMsg } from '/imports/api/group-chat-msg';
 import Breakouts from '/imports/api/breakouts/';
 import Meetings from '/imports/api/meetings';
 import Auth from '/imports/ui/services/auth';
@@ -11,9 +11,12 @@ import { EMOJI_STATUSES } from '/imports/utils/statuses';
 import { makeCall } from '/imports/ui/services/api';
 import _ from 'lodash';
 import KEY_CODES from '/imports/utils/keyCodes';
+import AudioService from '/imports/ui/components/audio/service';
+import logger from '/imports/startup/client/logger';
 
 const CHAT_CONFIG = Meteor.settings.public.chat;
 const PUBLIC_GROUP_CHAT_ID = CHAT_CONFIG.public_group_id;
+const ROLE_MODERATOR = Meteor.settings.public.user.role_moderator;
 
 // session for closed chat list
 const CLOSED_CHAT_LIST_KEY = 'closedChatList';
@@ -267,13 +270,14 @@ const isMeetingLocked = (id) => {
   const meeting = Meetings.findOne({ meetingId: id });
   let isLocked = false;
 
-  if (meeting.lockSettingsProp !== undefined) {
-    const lockSettings = meeting.lockSettingsProp;
+  if (meeting.lockSettingsProps !== undefined) {
+    const lockSettings = meeting.lockSettingsProps;
 
     if (lockSettings.disableCam
       || lockSettings.disableMic
-      || lockSettings.disablePrivChat
-      || lockSettings.disablePubChat) {
+      || lockSettings.disablePrivateChat
+      || lockSettings.disablePublicChat
+      || lockSettings.disableNote) {
       isLocked = true;
     }
   }
@@ -281,10 +285,17 @@ const isMeetingLocked = (id) => {
   return isLocked;
 };
 
+const areUsersUnmutable = () => {
+  const meeting = Meetings.findOne({ meetingId: Auth.meetingID });
+  if (meeting.usersProp) {
+    return meeting.usersProp.allowModsToUnmuteUsers;
+  }
+  return false;
+};
+
 const getAvailableActions = (currentUser, user, isBreakoutRoom) => {
   const isDialInUser = isVoiceOnlyUser(user.id) || user.isPhoneUser;
-
-  const hasAuthority = currentUser.isModerator || user.isCurrent;
+  const hasAuthority = currentUser.role === ROLE_MODERATOR || user.isCurrent;
 
   const allowedToChatPrivately = !user.isCurrent && !isDialInUser;
 
@@ -297,26 +308,26 @@ const getAvailableActions = (currentUser, user, isBreakoutRoom) => {
     && user.isVoiceUser
     && !user.isListenOnly
     && user.isMuted
-    && user.isCurrent;
+    && (user.isCurrent || areUsersUnmutable());
 
   const allowedToResetStatus = hasAuthority
     && user.emoji.status !== EMOJI_STATUSES.none
     && !isDialInUser;
 
   // if currentUser is a moderator, allow removing other users
-  const allowedToRemove = currentUser.isModerator && !user.isCurrent && !isBreakoutRoom;
+  const allowedToRemove = currentUser.role === ROLE_MODERATOR && !user.isCurrent && !isBreakoutRoom;
 
-  const allowedToSetPresenter = currentUser.isModerator
+  const allowedToSetPresenter = currentUser.role === ROLE_MODERATOR
     && !user.isPresenter
     && !isDialInUser;
 
-  const allowedToPromote = currentUser.isModerator
+  const allowedToPromote = currentUser.role === ROLE_MODERATOR
     && !user.isCurrent
     && !user.isModerator
     && !isDialInUser
     && !isBreakoutRoom;
 
-  const allowedToDemote = currentUser.isModerator
+  const allowedToDemote = currentUser.role === ROLE_MODERATOR
     && !user.isCurrent
     && user.isModerator
     && !isDialInUser
@@ -324,7 +335,7 @@ const getAvailableActions = (currentUser, user, isBreakoutRoom) => {
 
   const allowedToChangeStatus = user.isCurrent;
 
-  const allowedToChangeUserLockStatus = currentUser.isModerator
+  const allowedToChangeUserLockStatus = currentUser.role === ROLE_MODERATOR
     && !user.isModerator && isMeetingLocked(Auth.meetingID);
 
   return {
@@ -372,9 +383,13 @@ const removeUser = (userId) => {
 
 const toggleVoice = (userId) => {
   if (userId === Auth.userID) {
-    makeCall('toggleSelfVoice');
+    AudioService.toggleMuteMicrophone();
   } else {
     makeCall('toggleVoice', userId);
+    logger.info({
+      logCode: 'usermenu_option_mute_audio',
+      extraInfo: { logType: 'moderator_action' },
+    }, 'moderator muted user microphone');
   }
 };
 
@@ -443,18 +458,18 @@ const roving = (event, itemCount, changeState) => {
   }
 };
 
-const hasPrivateChatBetweenUsers = (sender, receiver) => GroupChat
-  .findOne({ users: { $all: [receiver.id, sender.id] } });
+const hasPrivateChatBetweenUsers = (senderId, receiverId) => GroupChat
+  .findOne({ users: { $all: [receiverId, senderId] } });
 
 const getGroupChatPrivate = (sender, receiver) => {
-  if (!hasPrivateChatBetweenUsers(sender, receiver)) {
+  if (!hasPrivateChatBetweenUsers(sender.userId, receiver.id)) {
     makeCall('createGroupChat', receiver);
   }
 };
 
 const isUserModerator = (userId) => {
   const u = Users.findOne({ userId });
-  return u ? u.moderator : false;
+  return u ? u.role === ROLE_MODERATOR : false;
 };
 
 const toggleUserLock = (userId, lockStatus) => {

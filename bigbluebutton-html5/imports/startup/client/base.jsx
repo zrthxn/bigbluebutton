@@ -10,28 +10,21 @@ import Settings from '/imports/ui/services/settings';
 import AudioManager from '/imports/ui/services/audio-manager';
 import logger from '/imports/startup/client/logger';
 import Users from '/imports/api/users';
-import Annotations from '/imports/api/annotations';
-import AnnotationsLocal from '/imports/ui/components/whiteboard/service';
-import GroupChat from '/imports/api/group-chat';
-import mapUser from '/imports/ui/services/user/mapUser';
 import { Session } from 'meteor/session';
 import IntlStartup from './intl';
 import Meetings from '../../api/meetings';
 import AppService from '/imports/ui/components/app/service';
-import AnnotationsTextService from '/imports/ui/components/whiteboard/annotations/text/service';
-
 import Breakouts from '/imports/api/breakouts';
 import AudioService from '/imports/ui/components/audio/service';
 import { FormattedMessage } from 'react-intl';
 import { notify } from '/imports/ui/services/notification';
 
-const CHAT_CONFIG = Meteor.settings.public.chat;
-const PUBLIC_GROUP_CHAT_ID = CHAT_CONFIG.public_group_id;
-const PUBLIC_CHAT_TYPE = CHAT_CONFIG.type_public;
+const HTML = document.getElementsByTagName('html')[0];
+
 let breakoutNotified = false;
 
 const propTypes = {
-  subscriptionsReady: PropTypes.bool.isRequired,
+  subscriptionsReady: PropTypes.bool,
   locale: PropTypes.string,
   approved: PropTypes.bool,
   meetingHasEnded: PropTypes.bool.isRequired,
@@ -40,8 +33,9 @@ const propTypes = {
 
 const defaultProps = {
   locale: undefined,
-  approved: undefined,
+  approved: false,
   meetingExist: false,
+  subscriptionsReady: false,
 };
 
 const fullscreenChangedEvents = [
@@ -70,11 +64,15 @@ class Base extends Component {
       loading: false,
       meetingExisted: false,
     };
-
     this.updateLoadingState = this.updateLoadingState.bind(this);
   }
 
   componentDidMount() {
+    const { animations } = this.props;
+
+    if (animations) HTML.classList.add('animationsEnabled');
+    if (!animations) HTML.classList.add('animationsDisabled');
+
     fullscreenChangedEvents.forEach((event) => {
       document.addEventListener(event, Base.handleFullscreenChange);
     });
@@ -86,10 +84,10 @@ class Base extends Component {
       approved,
       meetingExist,
       animations,
-      meteorIsConnected,
+      ejected,
+      isMeteorConnected,
       subscriptionsReady,
     } = this.props;
-
     const {
       loading,
       meetingExisted,
@@ -104,19 +102,34 @@ class Base extends Component {
     }
 
     // In case the meteor restart avoid error log
-    if (meteorIsConnected && (prevState.meetingExisted !== meetingExisted) && meetingExisted) {
+    if (isMeteorConnected && (prevState.meetingExisted !== meetingExisted) && meetingExisted) {
       this.setMeetingExisted(false);
     }
 
     // In case the meeting delayed to load
     if (!subscriptionsReady || !meetingExist) return;
 
-    if (approved && loading) this.updateLoadingState(false);
+    if (approved && loading && subscriptionsReady) this.updateLoadingState(false);
+
+    if (prevProps.ejected || ejected) {
+      Session.set('codeError', '403');
+      Session.set('isMeetingEnded', true);
+    }
+
+    // In case the meteor restart avoid error log
+    if (isMeteorConnected && (prevState.meetingExisted !== meetingExisted)) {
+      this.setMeetingExisted(false);
+    }
+
+    const enabled = HTML.classList.contains('animationsEnabled');
+    const disabled = HTML.classList.contains('animationsDisabled');
 
     if (animations && animations !== prevProps.animations) {
-      document.documentElement.style.setProperty('--enableAnimation', 1);
+      if (disabled) HTML.classList.remove('animationsDisabled');
+      HTML.classList.add('animationsEnabled');
     } else if (!animations && animations !== prevProps.animations) {
-      document.documentElement.style.setProperty('--enableAnimation', 0);
+      if (enabled) HTML.classList.remove('animationsEnabled');
+      HTML.classList.add('animationsDisabled');
     }
   }
 
@@ -143,10 +156,11 @@ class Base extends Component {
     const codeError = Session.get('codeError');
     const {
       ejected,
-      subscriptionsReady,
       meetingExist,
       meetingHasEnded,
       meetingIsBreakout,
+      subscriptionsReady,
+      User,
     } = this.props;
 
     if ((loading || !subscriptionsReady) && !meetingHasEnded && meetingExist) {
@@ -161,13 +175,16 @@ class Base extends Component {
 
     if (meetingHasEnded && meetingIsBreakout) window.close();
 
-    if (meetingHasEnded && !meetingIsBreakout) {
+    if (((meetingHasEnded && !meetingIsBreakout)) || (codeError && (User && User.loggedOut))) {
       AudioManager.exitAudio();
       return (<MeetingEnded code={codeError} />);
     }
 
     if (codeError && !meetingHasEnded) {
-      logger.error({ logCode: 'startup_client_usercouldnotlogin_error' }, `User could not log in HTML5, hit ${codeError}`);
+      // 680 is set for the codeError when the user requests a logout
+      if (codeError !== '680') {
+        logger.error({ logCode: 'startup_client_usercouldnotlogin_error' }, `User could not log in HTML5, hit ${codeError}`);
+      }
       return (<ErrorScreen code={codeError} />);
     }
     // this.props.annotationsHandler.stop();
@@ -195,88 +212,42 @@ class Base extends Component {
 Base.propTypes = propTypes;
 Base.defaultProps = defaultProps;
 
-const SUBSCRIPTIONS_NAME = [
-  'users', 'meetings', 'polls', 'presentations',
-  'slides', 'captions', 'voiceUsers', 'whiteboard-multi-user', 'screenshare',
-  'group-chat', 'presentation-pods', 'users-settings', 'guestUser', 'users-infos',
-];
-
 const BaseContainer = withTracker(() => {
   const { locale, animations } = Settings.application;
   const { credentials, loggedIn } = Auth;
-  const { meetingId, requesterUserId } = credentials;
+  const { meetingId } = credentials;
   let breakoutRoomSubscriptionHandler;
   let meetingModeratorSubscriptionHandler;
 
-  const meeting = Meetings.findOne({ meetingId });
-  if (meeting) {
-    const { meetingEnded } = meeting;
-    if (meetingEnded) Session.set('codeError', '410');
+  const fields = {
+    approved: 1,
+    authed: 1,
+    ejected: 1,
+    color: 1,
+    effectiveConnectionType: 1,
+    extId: 1,
+    guest: 1,
+    intId: 1,
+    locked: 1,
+    loggedOut: 1,
+    meetingId: 1,
+    userId: 1,
+  };
+  const User = Users.findOne({ intId: credentials.requesterUserId }, { fields });
+  const meeting = Meetings.findOne({ meetingId }, {
+    fields: {
+      meetingEnded: 1,
+    },
+  });
+
+  if (meeting && meeting.meetingEnded) {
+    Session.set('codeError', '410');
   }
 
+  const approved = User && User.approved && User.guest;
+  const ejected = User && User.ejected;
   let userSubscriptionHandler;
 
-  const subscriptionErrorHandler = {
-    onError: (error) => {
-      logger.error({ logCode: 'startup_client_subscription_error' }, error);
-      Session.set('codeError', error.error);
-    },
-  };
-
-  const subscriptionsHandlers = SUBSCRIPTIONS_NAME
-    .map(name => Meteor.subscribe(name, credentials, subscriptionErrorHandler));
-
-  const subscriptionsReady = subscriptionsHandlers.every(handler => handler.ready())
-    && loggedIn;
-
-  const chats = GroupChat.find({
-    $or: [
-      {
-        meetingId,
-        access: PUBLIC_CHAT_TYPE,
-        chatId: { $ne: PUBLIC_GROUP_CHAT_ID },
-      },
-      { meetingId, users: { $all: [requesterUserId] } },
-    ],
-  }).fetch();
-
-  const chatIds = chats.map(chat => chat.chatId);
-
-  const groupChatMessageHandler = Meteor.subscribe('group-chat-msg', credentials, chatIds, subscriptionErrorHandler);
-  const User = Users.findOne({ intId: credentials.requesterUserId });
-  let responseDelay;
-  let inactivityCheck;
-
-  if (User) {
-    const {
-      responseDelay: userResponseDelay,
-      inactivityCheck: userInactivityCheck,
-    } = User;
-    responseDelay = userResponseDelay;
-    inactivityCheck = userInactivityCheck;
-    const mappedUser = mapUser(User);
-    // override meteor subscription to verify if is moderator
-    userSubscriptionHandler = Meteor.subscribe('users', credentials, mappedUser.isModerator, subscriptionErrorHandler);
-    breakoutRoomSubscriptionHandler = Meteor.subscribe('breakouts', credentials, mappedUser.isModerator, subscriptionErrorHandler);
-    meetingModeratorSubscriptionHandler = Meteor.subscribe('meetings', credentials, mappedUser.isModerator, subscriptionErrorHandler);
-
-  }
-
-  const annotationsHandler = Meteor.subscribe('annotations', credentials, {
-    onReady: () => {
-      const activeTextShapeId = AnnotationsTextService.activeTextShapeId();
-      AnnotationsLocal.remove({ id: { $ne: `${activeTextShapeId}-fake` } });
-      Annotations.find({ id: { $ne: activeTextShapeId } }, { reactive: false }).forEach((a) => {
-        try {
-          AnnotationsLocal.insert(a);
-        } catch (e) {
-          // TODO
-        }
-      });
-      annotationsHandler.stop();
-    },
-    ...subscriptionErrorHandler,
-  });
 
   Breakouts.find().observeChanges({
     added() {
@@ -299,7 +270,7 @@ const BaseContainer = withTracker(() => {
     },
   });
 
-  Meetings.find({ meetingId }).observe({
+  Meetings.find({ meetingId }, { fields: { recordProp: 1 } }).observe({
     changed: (newDocument, oldDocument) => {
       if (newDocument.recordProp) {
         if (!oldDocument.recordProp.recording && newDocument.recordProp.recording) {
@@ -316,7 +287,7 @@ const BaseContainer = withTracker(() => {
         if (oldDocument.recordProp.recording && !newDocument.recordProp.recording) {
           notify(
             <FormattedMessage
-              id="app.notification.recordingStop"
+              id="app.notification.recordingPaused"
               description="Notification for when the recording stops"
             />,
             'error',
@@ -328,23 +299,20 @@ const BaseContainer = withTracker(() => {
   });
 
   return {
-    approved: Users.findOne({ userId: Auth.userID, approved: true, guest: true }),
-    ejected: Users.findOne({ userId: Auth.userID, ejected: true }),
+    approved,
+    ejected,
     locale,
-    subscriptionsReady,
-    annotationsHandler,
-    groupChatMessageHandler,
     userSubscriptionHandler,
     breakoutRoomSubscriptionHandler,
     meetingModeratorSubscriptionHandler,
     animations,
-    responseDelay,
-    inactivityCheck,
     User,
-    meteorIsConnected: Meteor.status().connected,
+    isMeteorConnected: Meteor.status().connected,
     meetingExist: !!meeting,
     meetingHasEnded: !!meeting && meeting.meetingEnded,
     meetingIsBreakout: AppService.meetingIsBreakout(),
+    subscriptionsReady: Session.get('subscriptionsReady'),
+    loggedIn,
   };
 })(Base);
 

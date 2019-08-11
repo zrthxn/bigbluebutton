@@ -1,14 +1,9 @@
 import React, { PureComponent } from 'react';
 import PropTypes from 'prop-types';
 import { injectIntl } from 'react-intl';
-import _ from 'lodash';
 import UserDropdown from './user-dropdown/component';
 
 const propTypes = {
-  currentUser: PropTypes.shape({
-    id: PropTypes.string.isRequired,
-  }).isRequired,
-
   compact: PropTypes.bool.isRequired,
   intl: PropTypes.shape({
     formatMessage: PropTypes.func.isRequired,
@@ -19,6 +14,7 @@ const propTypes = {
   normalizeEmojiName: PropTypes.func.isRequired,
   getScrollContainerRef: PropTypes.func.isRequired,
   toggleUserLock: PropTypes.func.isRequired,
+  isMeteorConnected: PropTypes.bool.isRequired,
 };
 
 const defaultProps = {
@@ -50,17 +46,21 @@ class UserListItem extends PureComponent {
       hasPrivateChatBetweenUsers,
       toggleUserLock,
       requestUserInformation,
+      userInBreakout,
+      breakoutSequence,
+      meetignIsBreakout,
+      isMeteorConnected,
     } = this.props;
 
-    const { meetingId, lockSettingsProp } = meeting;
+    const { meetingId, lockSettingsProps } = meeting;
 
     const contents = (
       <UserDropdown
         {...{
           assignPresenter,
           compact,
-          currentUser,
           changeRole,
+          currentUser,
           getAvailableActions,
           getEmoji,
           getEmojiList,
@@ -71,7 +71,7 @@ class UserListItem extends PureComponent {
           isBreakoutRoom,
           isMeetingLocked,
           meetingId,
-          lockSettingsProp,
+          lockSettingsProps,
           normalizeEmojiName,
           removeUser,
           setEmojiStatus,
@@ -80,6 +80,10 @@ class UserListItem extends PureComponent {
           hasPrivateChatBetweenUsers,
           toggleUserLock,
           requestUserInformation,
+          userInBreakout,
+          breakoutSequence,
+          meetignIsBreakout,
+          isMeteorConnected,
         }}
       />
     );

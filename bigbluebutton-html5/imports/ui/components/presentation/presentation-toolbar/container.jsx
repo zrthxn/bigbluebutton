@@ -8,17 +8,8 @@ import PresentationToolbarService from './service';
 
 const PresentationToolbarContainer = (props) => {
   const {
-    currentSlideNum,
     userIsPresenter,
-    numberOfSlides,
-    actions,
-    zoom,
-    zoomChanger,
-    fitToWidthHandler,
     getSwapLayout,
-    isFullscreen,
-    fullscreenRef,
-    fitToWidth,
   } = props;
 
   if (userIsPresenter && !getSwapLayout) {
@@ -26,17 +17,7 @@ const PresentationToolbarContainer = (props) => {
 
     return (
       <PresentationToolbar
-        {...{
-          isFullscreen,
-          fullscreenRef,
-          currentSlideNum,
-          numberOfSlides,
-          actions,
-          zoom,
-          zoomChanger,
-          fitToWidthHandler,
-          fitToWidth,
-        }}
+        {...props}
       />
     );
   }
@@ -44,41 +25,19 @@ const PresentationToolbarContainer = (props) => {
 };
 
 export default withTracker((params) => {
-  const { podId, presentationId, fitToWidth } = params;
-  const data = PresentationToolbarService.getSlideData(podId, presentationId);
-
   const {
-    numberOfSlides,
-  } = data;
+    podId,
+    presentationId,
+  } = params;
 
   return {
     getSwapLayout: MediaService.getSwapLayout(),
-    fitToWidthHandler: params.fitToWidthHandler,
-    fitToWidth,
     userIsPresenter: PresentationService.isPresenter(podId),
-    numberOfSlides,
-    zoom: params.zoom,
-    zoomChanger: params.zoomChanger,
-    actions: {
-      nextSlideHandler: () => PresentationToolbarService.nextSlide(
-        params.currentSlideNum,
-        numberOfSlides,
-        podId,
-      ),
-      previousSlideHandler: () => PresentationToolbarService.previousSlide(
-        params.currentSlideNum,
-        podId,
-      ),
-      skipToSlideHandler: requestedSlideNum => PresentationToolbarService.skipToSlide(
-        requestedSlideNum,
-        podId,
-      ),
-      zoomSlideHandler: value => PresentationToolbarService.zoomSlide(
-        params.currentSlideNum,
-        podId,
-        value,
-      ),
-    },
+    numberOfSlides: PresentationToolbarService.getNumberOfSlides(podId, presentationId),
+    nextSlide: PresentationToolbarService.nextSlide,
+    previousSlide: PresentationToolbarService.previousSlide,
+    skipToSlide: PresentationToolbarService.skipToSlide,
+    isMeteorConnected: Meteor.status().connected,
   };
 })(PresentationToolbarContainer);
 
@@ -95,9 +54,7 @@ PresentationToolbarContainer.propTypes = {
   numberOfSlides: PropTypes.number.isRequired,
 
   // Actions required for the presenter toolbar
-  actions: PropTypes.shape({
-    nextSlideHandler: PropTypes.func.isRequired,
-    previousSlideHandler: PropTypes.func.isRequired,
-    skipToSlideHandler: PropTypes.func.isRequired,
-  }).isRequired,
+  nextSlide: PropTypes.func.isRequired,
+  previousSlide: PropTypes.func.isRequired,
+  skipToSlide: PropTypes.func.isRequired,
 };

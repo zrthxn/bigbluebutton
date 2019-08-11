@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { PureComponent } from 'react';
 import cx from 'classnames';
 import { styles } from './styles.scss';
 import DesktopShare from './desktop-share/component';
@@ -6,10 +6,33 @@ import ActionsDropdown from './actions-dropdown/component';
 import QuickPollDropdown from './quick-poll-dropdown/component';
 import AudioControlsContainer from '../audio/audio-controls/container';
 import JoinVideoOptionsContainer from '../video-provider/video-button/container';
-
+import CaptionsButtonContainer from '/imports/ui/components/actions-bar/captions/container';
 import PresentationOptionsContainer from './presentation-options/component';
 
-class ActionsBar extends React.PureComponent {
+class ActionsBar extends PureComponent {
+  componentDidUpdate(prevProps) {
+    const { isThereCurrentPresentation: prevIsThereCurrPresentation } = prevProps;
+    const {
+      isThereCurrentPresentation,
+      getSwapLayout,
+      toggleSwapLayout,
+      isSharingVideo,
+      isVideoBroadcasting,
+    } = this.props;
+
+    if (!isThereCurrentPresentation && !isSharingVideo && !isVideoBroadcasting) {
+      if (!getSwapLayout()) {
+        toggleSwapLayout();
+      }
+    }
+
+    if (!prevIsThereCurrPresentation && isThereCurrentPresentation && !isSharingVideo && !isVideoBroadcasting) {
+      if (getSwapLayout()) {
+        toggleSwapLayout();
+      }
+    }
+  }
+
   render() {
     const {
       isUserPresenter,
@@ -30,6 +53,13 @@ class ActionsBar extends React.PureComponent {
       currentSlidHasContent,
       parseCurrentSlideContent,
       isSharingVideo,
+      screenShareEndAlert,
+      stopExternalVideoShare,
+      screenshareDataSavingSetting,
+      isCaptionsAvailable,
+      isMeteorConnected,
+      isPollingEnabled,
+      isThereCurrentPresentation,
     } = this.props;
 
     const {
@@ -39,7 +69,7 @@ class ActionsBar extends React.PureComponent {
     } = recordSettingsList;
 
     const actionBarClasses = {};
-    const { enableExternalVideo } = Meteor.settings.public.app;
+    const { enabled: enableExternalVideo } = Meteor.settings.public.externalVideoPlayer;
 
     actionBarClasses[styles.centerWithActions] = isUserPresenter;
     actionBarClasses[styles.center] = true;
@@ -50,6 +80,7 @@ class ActionsBar extends React.PureComponent {
           <ActionsDropdown {...{
             isUserPresenter,
             isUserModerator,
+            isPollingEnabled,
             allowStartStopRecording,
             allowExternalVideo: enableExternalVideo,
             isRecording,
@@ -58,16 +89,28 @@ class ActionsBar extends React.PureComponent {
             handleTakePresenter,
             intl,
             isSharingVideo,
+            stopExternalVideoShare,
+            isMeteorConnected,
           }}
           />
-          <QuickPollDropdown
-            {...{
-              currentSlidHasContent,
-              intl,
-              isUserPresenter,
-              parseCurrentSlideContent,
-            }}
-          />
+          {isPollingEnabled
+            ? (
+              <QuickPollDropdown
+                {...{
+                  currentSlidHasContent,
+                  intl,
+                  isUserPresenter,
+                  parseCurrentSlideContent,
+                }}
+              />
+            ) : null
+          }
+          {isCaptionsAvailable
+            ? (
+              <CaptionsButtonContainer {...{ intl }} />
+            )
+            : null
+          }
         </div>
         <div
           className={
@@ -89,6 +132,9 @@ class ActionsBar extends React.PureComponent {
             isVideoBroadcasting,
             isUserPresenter,
             screenSharingCheck,
+            screenShareEndAlert,
+            isMeteorConnected,
+            screenshareDataSavingSetting,
           }}
           />
         </div>
@@ -97,6 +143,7 @@ class ActionsBar extends React.PureComponent {
             ? (
               <PresentationOptionsContainer
                 toggleSwapLayout={toggleSwapLayout}
+                isThereCurrentPresentation={isThereCurrentPresentation}
               />
             )
             : null

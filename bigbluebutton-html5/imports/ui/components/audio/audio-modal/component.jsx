@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import cx from 'classnames';
 import Modal from '/imports/ui/components/modal/simple/component';
 import Button from '/imports/ui/components/button/component';
+import { Session } from 'meteor/session';
 import {
   defineMessages, injectIntl, intlShape, FormattedMessage,
 } from 'react-intl';
@@ -11,6 +12,7 @@ import PermissionsOverlay from '../permissions-overlay/component';
 import AudioSettings from '../audio-settings/component';
 import EchoTest from '../echo-test/component';
 import Help from '../help/component';
+import AudioDial from '../audio-dial/component';
 
 
 const propTypes = {
@@ -28,17 +30,26 @@ const propTypes = {
   isConnected: PropTypes.bool.isRequired,
   inputDeviceId: PropTypes.string,
   outputDeviceId: PropTypes.string,
+  formattedDialNum: PropTypes.string.isRequired,
   showPermissionsOvelay: PropTypes.bool.isRequired,
   listenOnlyMode: PropTypes.bool.isRequired,
   skipCheck: PropTypes.bool.isRequired,
   joinFullAudioImmediately: PropTypes.bool.isRequired,
   joinFullAudioEchoTest: PropTypes.bool.isRequired,
   forceListenOnlyAttendee: PropTypes.bool.isRequired,
+  audioLocked: PropTypes.bool.isRequired,
+  resolve: PropTypes.func,
+  isMobileNative: PropTypes.bool.isRequired,
+  isIOSChrome: PropTypes.bool.isRequired,
+  isIEOrEdge: PropTypes.bool.isRequired,
+  hasMediaDevices: PropTypes.bool.isRequired,
+  formattedTelVoice: PropTypes.string.isRequired,
 };
 
 const defaultProps = {
   inputDeviceId: null,
   outputDeviceId: null,
+  resolve: null,
 };
 
 const intlMessages = defineMessages({
@@ -82,6 +93,10 @@ const intlMessages = defineMessages({
     id: 'app.audioModal.helpTitle',
     description: 'Title for the audio help',
   },
+  audioDialTitle: {
+    id: 'app.audioModal.audioDialTitle',
+    description: 'Title for the audio dial',
+  },
   connecting: {
     id: 'app.audioModal.connecting',
     description: 'Message for audio connecting',
@@ -89,6 +104,10 @@ const intlMessages = defineMessages({
   connectingEchoTest: {
     id: 'app.audioModal.connectingEchoTest',
     description: 'Message for echo test connecting',
+  },
+  ariaModalTitle: {
+    id: 'app.audioModal.ariaTitle',
+    description: 'aria label for modal title',
   },
 });
 
@@ -122,10 +141,14 @@ class AudioModal extends Component {
         title: intlMessages.helpTitle,
         component: () => this.renderHelp(),
       },
+      audioDial: {
+        title: intlMessages.audioDialTitle,
+        component: () => this.renderAudioDial(),
+      },
     };
   }
 
-  componentWillMount() {
+  componentDidMount() {
     const {
       joinFullAudioImmediately,
       joinFullAudioEchoTest,
@@ -150,11 +173,14 @@ class AudioModal extends Component {
     const {
       isEchoTest,
       exitAudio,
+      resolve,
     } = this.props;
 
     if (isEchoTest) {
       exitAudio();
     }
+    if (resolve) resolve();
+    Session.set('audioModalIsOpen', false);
   }
 
   handleGoToAudioOptions() {
@@ -267,7 +293,7 @@ class AudioModal extends Component {
       skipCheck,
       audioLocked,
       isMobileNative,
-      isIEOrEdge,
+      formattedDialNum,
     } = this.props;
 
     const showMicrophone = forceListenOnlyAttendee || audioLocked;
@@ -301,18 +327,20 @@ class AudioModal extends Component {
             )
             : null}
         </span>
-        {isIEOrEdge ? (
-          <p className={cx(styles.text, styles.browserWarning)}>
-            <FormattedMessage
-              id="app.audioModal.unsupportedBrowserLabel"
-              description="Warning when someone joins with a browser that isnt supported"
-              values={{
-                0: <a href="https://www.google.com/chrome/">Chrome</a>,
-                1: <a href="https://getfirefox.com">Firefox</a>,
-              }}
-            />
-          </p>
-        ) : null }
+        {formattedDialNum ? (
+          <Button
+            className={styles.audioDial}
+            label={`${intl.formatMessage(intlMessages.audioDialTitle)} ➔`}
+            size="md"
+            color="primary"
+            onClick={() => {
+              this.setState({
+                content: 'audioDial',
+              });
+            }}
+            ghost
+          />
+        ) : null}
       </div>
     );
   }
@@ -321,12 +349,12 @@ class AudioModal extends Component {
     const {
       isEchoTest,
       intl,
-      isIOSChrome,
+      hasMediaDevices,
     } = this.props;
 
     const { content } = this.state;
 
-    if (isIOSChrome) {
+    if (!hasMediaDevices) {
       return (
         <div>
           <div className={styles.warning}>!</div>
@@ -398,25 +426,50 @@ class AudioModal extends Component {
     );
   }
 
+  renderAudioDial() {
+    const { formattedDialNum, formattedTelVoice } = this.props;
+    return (
+      <AudioDial
+        formattedDialNum={formattedDialNum}
+        telVoice={formattedTelVoice}
+        handleBack={this.handleGoToAudioOptions}
+      />
+    );
+  }
+
   render() {
     const {
       intl,
       showPermissionsOvelay,
       isIOSChrome,
       closeModal,
+      isIEOrEdge,
     } = this.props;
 
     const { content } = this.state;
 
     return (
       <span>
-        {showPermissionsOvelay ? <PermissionsOverlay /> : null}
+        {showPermissionsOvelay ? <PermissionsOverlay closeModal={closeModal} /> : null}
         <Modal
           overlayClassName={styles.overlay}
           className={styles.modal}
           onRequestClose={closeModal}
           hideBorder
+          contentLabel={intl.formatMessage(intlMessages.ariaModalTitle)}
         >
+          {isIEOrEdge ? (
+            <p className={cx(styles.text, styles.browserWarning)}>
+              <FormattedMessage
+                id="app.audioModal.unsupportedBrowserLabel"
+                description="Warning when someone joins with a browser that isnt supported"
+                values={{
+                  0: <a href="https://www.google.com/chrome/">Chrome</a>,
+                  1: <a href="https://getfirefox.com">Firefox</a>,
+                }}
+              />
+            </p>
+          ) : null}
           {!this.skipAudioOptions()
 
             ? (
@@ -425,15 +478,15 @@ class AudioModal extends Component {
                 className={styles.header}
               >
                 {
-                isIOSChrome ? null
-                  : (
-                    <h3 className={styles.title}>
-                      {content
-                        ? intl.formatMessage(this.contents[content].title)
-                        : intl.formatMessage(intlMessages.audioChoiceLabel)}
-                    </h3>
-                  )
-            }
+                  isIOSChrome ? null
+                    : (
+                      <h3 className={styles.title}>
+                        {content
+                          ? intl.formatMessage(this.contents[content].title)
+                          : intl.formatMessage(intlMessages.audioChoiceLabel)}
+                      </h3>
+                    )
+                }
               </header>
             )
             : null

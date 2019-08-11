@@ -107,6 +107,14 @@ class Poll extends Component {
     this.handleBackClick = this.handleBackClick.bind(this);
   }
 
+  componentDidMount() {
+    const { props } = this.hideBtn;
+    const { className } = props;
+
+    const hideBtn = document.getElementsByClassName(`${className}`);
+    if (hideBtn[0]) hideBtn[0].focus();
+  }
+
   componentDidUpdate() {
     const { currentUser } = this.props;
 
@@ -126,6 +134,7 @@ class Poll extends Component {
     const option = event.target.value.replace(/\s{2,}/g, ' ').trim();
 
     this.inputEditor[index] = option === '' ? '' : option;
+
     this.setState({ customPollValues: this.inputEditor });
   }
 
@@ -143,17 +152,16 @@ class Poll extends Component {
 
   toggleCustomFields() {
     const { customPollReq } = this.state;
-
-    this.inputEditor = [];
-
     return this.setState({ customPollReq: !customPollReq });
   }
 
   renderQuickPollBtns() {
-    const { pollTypes, startPoll, intl } = this.props;
+    const {
+      isMeteorConnected, pollTypes, startPoll, intl,
+    } = this.props;
 
     const btns = pollTypes.map((type) => {
-      if (type === 'custom') return;
+      if (type === 'custom') return false;
 
       const label = intl.formatMessage(
         // regex removes the - to match the message id
@@ -162,6 +170,7 @@ class Poll extends Component {
 
       return (
         <Button
+          disabled={!isMeteorConnected}
           label={label}
           color="default"
           className={styles.pollBtn}
@@ -193,6 +202,7 @@ class Poll extends Component {
           label={intl.formatMessage(intlMessages.startCustomLabel)}
           color="primary"
           aria-disabled={isDisabled}
+          disabled={isDisabled}
           className={styles.btn}
         />
       </div>
@@ -227,7 +237,14 @@ class Poll extends Component {
 
   renderActivePollOptions() {
     const {
-      intl, publishPoll, stopPoll, currentUser, currentPoll, getUser,
+      intl,
+      isMeteorConnected,
+      publishPoll,
+      stopPoll,
+      currentUser,
+      currentPoll,
+      getUser,
+      pollAnswerIds,
     } = this.props;
 
     return (
@@ -237,11 +254,13 @@ class Poll extends Component {
         </div>
         <LiveResult
           {...{
+            isMeteorConnected,
             publishPoll,
             stopPoll,
             currentUser,
             getUser,
             currentPoll,
+            pollAnswerIds,
           }}
           handleBackClick={this.handleBackClick}
         />
@@ -250,7 +269,7 @@ class Poll extends Component {
   }
 
   renderPollOptions() {
-    const { intl } = this.props;
+    const { isMeteorConnected, intl } = this.props;
     const { customPollReq } = this.state;
 
     return (
@@ -265,6 +284,7 @@ class Poll extends Component {
           {intl.formatMessage(intlMessages.customPollInstruction)}
         </div>
         <Button
+          disabled={!isMeteorConnected}
           className={styles.customBtn}
           color="default"
           onClick={this.toggleCustomFields}
@@ -321,6 +341,7 @@ class Poll extends Component {
       <div>
         <header className={styles.header}>
           <Button
+            ref={(node) => { this.hideBtn = node; }}
             tabIndex={0}
             label={intl.formatMessage(intlMessages.pollPaneTitle)}
             icon="left_arrow"
@@ -333,6 +354,7 @@ class Poll extends Component {
 
           <Button
             label={intl.formatMessage(intlMessages.closeLabel)}
+            aria-label={`${intl.formatMessage(intlMessages.closeLabel)} ${intl.formatMessage(intlMessages.pollPaneTitle)}`}
             onClick={() => {
               if (currentPoll) {
                 stopPoll();

@@ -5,6 +5,8 @@ import {
 } from 'meteor/check';
 import Meetings from '/imports/api/meetings';
 import Logger from '/imports/startup/server/logger';
+import createNote from '/imports/api/note/server/methods/createNote';
+import createCaptions from '/imports/api/captions/server/methods/createCaptions';
 
 export default function addMeeting(meeting) {
   const meetingId = meeting.meetingProp.intId;
@@ -16,6 +18,9 @@ export default function addMeeting(meeting) {
       freeJoin: Boolean,
       breakoutRooms: Array,
       parentId: String,
+      enabled: Boolean,
+      record: Boolean,
+      privateChatEnabled: Boolean,
     },
     meetingProp: {
       intId: String,
@@ -27,6 +32,7 @@ export default function addMeeting(meeting) {
       webcamsOnlyForModerator: Boolean,
       guestPolicy: String,
       maxUsers: Number,
+      allowModsToUnmuteUsers: Boolean,
     },
     durationProps: {
       createdTime: Number,
@@ -67,6 +73,16 @@ export default function addMeeting(meeting) {
       screenshareConf: String,
     },
     metadataProp: Object,
+    lockSettingsProps: {
+      disableCam: Boolean,
+      disableMic: Boolean,
+      disablePrivateChat: Boolean,
+      disablePublicChat: Boolean,
+      disableNote: Boolean,
+      lockOnJoin: Boolean,
+      lockOnJoinConfigurable: Boolean,
+      lockedLayout: Boolean,
+    },
   });
 
   const newMeeting = meeting;
@@ -75,16 +91,7 @@ export default function addMeeting(meeting) {
     meetingId,
   };
 
-  const lockSettingsProp = {
-    disableCam: false,
-    disableMic: false,
-    disablePrivChat: false,
-    disablePubChat: false,
-    lockOnJoin: true,
-    lockOnJoinConfigurable: false,
-    lockedLayout: false,
-    setBy: 'temp',
-  };
+  newMeeting.lockSettingsProps = Object.assign(meeting.lockSettingsProps, { setBy: 'temp' });
 
   const meetingEnded = false;
 
@@ -108,7 +115,7 @@ export default function addMeeting(meeting) {
     $set: Object.assign({
       meetingId,
       meetingEnded,
-      lockSettingsProp,
+      publishedPoll: false,
     }, flat(newMeeting, {
       safe: true,
     })),
@@ -126,6 +133,10 @@ export default function addMeeting(meeting) {
 
     if (insertedId) {
       Logger.info(`Added meeting id=${meetingId}`);
+      // TODO: Here we call Etherpad API to create this meeting notes. Is there a
+      // better place we can run this post-creation routine?
+      createNote(meetingId);
+      createCaptions(meetingId);
     }
 
     if (numChanged) {

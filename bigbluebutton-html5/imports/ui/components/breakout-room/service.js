@@ -5,6 +5,7 @@ import Auth from '/imports/ui/services/auth';
 import { Session } from 'meteor/session';
 import Users from '/imports/api/users';
 import mapUser from '/imports/ui/services/user/mapUser';
+import fp from 'lodash/fp';
 
 const findBreakouts = () => {
   const BreakoutRooms = Breakouts.find({
@@ -65,6 +66,34 @@ const isModerator = () => {
   return mappedUser.isModerator;
 };
 
+const getUsersByBreakoutId = breakoutId => Users.find({
+  meetingId: breakoutId,
+  connectionStatus: 'online',
+});
+
+const getBreakoutByUserId = userId => Breakouts.find({ 'users.userId': userId }).fetch();
+
+const getBreakoutByUser = user => Breakouts.findOne({ users: user });
+
+const getUsersFromBreakouts = breakoutsArray => breakoutsArray
+  .map(breakout => breakout.users)
+  .reduce((acc, usersArray) => [...acc, ...usersArray], []);
+
+const filterUserURLs = userId => breakoutUsersArray => breakoutUsersArray
+  .filter(user => user.userId === userId);
+
+const getLastURLInserted = breakoutURLArray => breakoutURLArray
+  .sort((a, b) => a.insertedTime - b.insertedTime).pop();
+
+const getBreakoutUserByUserId = userId => fp.pipe(
+  getBreakoutByUserId,
+  getUsersFromBreakouts,
+  filterUserURLs(userId),
+  getLastURLInserted,
+)(userId);
+
+const getBreakouts = () => Breakouts.find({}, { sort: { sequence: 1 } }).fetch();
+
 export default {
   findBreakouts,
   endAllBreakouts,
@@ -76,4 +105,9 @@ export default {
   isPresenter,
   closeBreakoutPanel,
   isModerator,
+  getUsersByBreakoutId,
+  getBreakoutUserByUserId,
+  getBreakoutByUser,
+  getBreakouts,
+  getBreakoutByUserId,
 };

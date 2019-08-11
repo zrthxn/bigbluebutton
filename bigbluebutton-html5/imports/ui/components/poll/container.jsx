@@ -33,5 +33,7 @@ export default withTracker(() => {
     currentPoll: Service.currentPoll(),
     getUser: Service.getUser,
     resetPollPanel: Session.get('resetPollPanel') || false,
+    pollAnswerIds: Service.pollAnswerIds,
+    isMeteorConnected: Meteor.status().connected,
   };
 })(PollContainer);

@@ -10,6 +10,8 @@ import DropdownContent from '/imports/ui/components/dropdown/content/component';
 import DropdownList from '/imports/ui/components/dropdown/list/component';
 import DropdownListItem from '/imports/ui/components/dropdown/list/item/component';
 import DropdownListSeparator from '/imports/ui/components/dropdown/list/separator/component';
+import lockContextContainer from '/imports/ui/components/lock-viewers/context/container';
+
 import _ from 'lodash';
 import { Session } from 'meteor/session';
 import { styles } from './styles';
@@ -57,9 +59,13 @@ const messages = defineMessages({
     id: 'app.userList.menu.clearStatus.label',
     description: 'Clear the emoji status of this user',
   },
-  MakePresenterLabel: {
-    id: 'app.userList.menu.makePresenter.label',
+  takePresenterLabel: {
+    id: 'app.actionsBar.actionsDropdown.takePresenter',
     description: 'Set this user to be the presenter in this meeting',
+  },
+  makePresenterLabel: {
+    id: 'app.userList.menu.makePresenter.label',
+    description: 'label to make another user presenter',
   },
   RemoveUserLabel: {
     id: 'app.userList.menu.removeUser.label',
@@ -106,6 +112,8 @@ const propTypes = {
   getScrollContainerRef: PropTypes.func.isRequired,
   toggleUserLock: PropTypes.func.isRequired,
 };
+const ROLE_MODERATOR = Meteor.settings.public.user.role_moderator;
+const CHAT_ENABLED = Meteor.settings.public.chat.enabled;
 
 class UserDropdown extends PureComponent {
   /**
@@ -202,12 +210,13 @@ class UserDropdown extends PureComponent {
       removeUser,
       toggleVoice,
       changeRole,
-      lockSettingsProp,
+      lockSettingsProps,
       hasPrivateChatBetweenUsers,
       toggleUserLock,
       requestUserInformation,
+      isMeteorConnected,
+      userLocks,
     } = this.props;
-
     const { showNestedOptions } = this.state;
 
     const actionPermissions = getAvailableActions(currentUser, user, isBreakoutRoom);
@@ -226,18 +235,18 @@ class UserDropdown extends PureComponent {
       allowedToChangeUserLockStatus,
     } = actionPermissions;
 
-    const { disablePrivChat } = lockSettingsProp;
+    const { disablePrivateChat } = lockSettingsProps;
 
-    const enablePrivateChat = currentUser.isModerator
+    const enablePrivateChat = currentUser.role === ROLE_MODERATOR
       ? allowedToChatPrivately
       : allowedToChatPrivately
-      && (!(currentUser.isLocked && disablePrivChat)
-        || hasPrivateChatBetweenUsers(currentUser, user)
-        || user.isModerator);
+      && (!(currentUser.locked && disablePrivateChat)
+        || hasPrivateChatBetweenUsers(currentUser.userId, user.id)
+        || user.isModerator) && isMeteorConnected;
 
     const { allowUserLookup } = Meteor.settings.public.app;
 
-    if (showNestedOptions) {
+    if (showNestedOptions && isMeteorConnected) {
       if (allowedToChangeStatus) {
         actions.push(this.makeDropdownItem(
           'back',
@@ -260,7 +269,7 @@ class UserDropdown extends PureComponent {
       return actions;
     }
 
-    if (allowedToChangeStatus) {
+    if (allowedToChangeStatus && isMeteorConnected) {
       actions.push(this.makeDropdownItem(
         'setstatus',
         intl.formatMessage(messages.statusTriggerLabel),
@@ -270,7 +279,7 @@ class UserDropdown extends PureComponent {
       ));
     }
 
-    if (enablePrivateChat) {
+    if (CHAT_ENABLED && enablePrivateChat && isMeteorConnected) {
       actions.push(this.makeDropdownItem(
         'activeChat',
         intl.formatMessage(messages.ChatLabel),
@@ -283,7 +292,7 @@ class UserDropdown extends PureComponent {
       ));
     }
 
-    if (allowedToResetStatus && user.emoji.status !== 'none') {
+    if (allowedToResetStatus && user.emoji.status !== 'none' && isMeteorConnected) {
       actions.push(this.makeDropdownItem(
         'clearStatus',
         intl.formatMessage(messages.ClearStatusLabel),
@@ -292,7 +301,7 @@ class UserDropdown extends PureComponent {
       ));
     }
 
-    if (allowedToMuteAudio) {
+    if (allowedToMuteAudio && isMeteorConnected) {
       actions.push(this.makeDropdownItem(
         'mute',
         intl.formatMessage(messages.MuteUserAudioLabel),
@@ -301,7 +310,7 @@ class UserDropdown extends PureComponent {
       ));
     }
 
-    if (allowedToUnmuteAudio) {
+    if (allowedToUnmuteAudio && !userLocks.userMic && isMeteorConnected) {
       actions.push(this.makeDropdownItem(
         'unmute',
         intl.formatMessage(messages.UnmuteUserAudioLabel),
@@ -310,16 +319,18 @@ class UserDropdown extends PureComponent {
       ));
     }
 
-    if (allowedToSetPresenter) {
+    if (allowedToSetPresenter && isMeteorConnected) {
       actions.push(this.makeDropdownItem(
         'setPresenter',
-        intl.formatMessage(messages.MakePresenterLabel),
+        user.isCurrent
+          ? intl.formatMessage(messages.takePresenterLabel)
+          : intl.formatMessage(messages.makePresenterLabel),
         () => this.onActionsHide(assignPresenter(user.id)),
         'presentation',
       ));
     }
 
-    if (allowedToRemove) {
+    if (allowedToRemove && isMeteorConnected) {
       actions.push(this.makeDropdownItem(
         'remove',
         intl.formatMessage(messages.RemoveUserLabel, { 0: user.name }),
@@ -328,7 +339,7 @@ class UserDropdown extends PureComponent {
       ));
     }
 
-    if (allowedToPromote) {
+    if (allowedToPromote && isMeteorConnected) {
       actions.push(this.makeDropdownItem(
         'promote',
         intl.formatMessage(messages.PromoteUserLabel),
@@ -337,7 +348,7 @@ class UserDropdown extends PureComponent {
       ));
     }
 
-    if (allowedToDemote) {
+    if (allowedToDemote && isMeteorConnected) {
       actions.push(this.makeDropdownItem(
         'demote',
         intl.formatMessage(messages.DemoteUserLabel),
@@ -346,7 +357,7 @@ class UserDropdown extends PureComponent {
       ));
     }
 
-    if (allowedToChangeUserLockStatus) {
+    if (allowedToChangeUserLockStatus && isMeteorConnected) {
       actions.push(this.makeDropdownItem(
         'unlockUser',
         user.isLocked ? intl.formatMessage(messages.UnlockUserLabel, { 0: user.name })
@@ -356,7 +367,7 @@ class UserDropdown extends PureComponent {
       ));
     }
 
-    if (allowUserLookup) {
+    if (allowUserLookup && isMeteorConnected) {
       actions.push(this.makeDropdownItem(
         'directoryLookup',
         intl.formatMessage(messages.DirectoryLookupLabel),
@@ -454,6 +465,9 @@ class UserDropdown extends PureComponent {
     const {
       normalizeEmojiName,
       user,
+      userInBreakout,
+      breakoutSequence,
+      meetignIsBreakout,
     } = this.props;
 
     const { clientType } = user;
@@ -463,7 +477,8 @@ class UserDropdown extends PureComponent {
       ? (<Icon iconName={normalizeEmojiName(user.emoji.status)} />)
       : user.name.toLowerCase().slice(0, 2);
 
-    const iconVoiceOnlyUser = (<Icon iconName="speak_louder" />);
+    const iconVoiceOnlyUser = (<Icon iconName="audio_on" />);
+    const userIcon = isVoiceOnly ? iconVoiceOnlyUser : iconUser;
 
     return (
       <UserAvatar
@@ -476,7 +491,10 @@ class UserDropdown extends PureComponent {
         noVoice={!user.isVoiceUser}
         color={user.color}
       >
-        {isVoiceOnly ? iconVoiceOnlyUser : iconUser}
+        {
+        userInBreakout
+        && !meetignIsBreakout
+          ? breakoutSequence : userIcon}
       </UserAvatar>
     );
   }
@@ -484,6 +502,7 @@ class UserDropdown extends PureComponent {
   render() {
     const {
       compact,
+      currentUser,
       user,
       intl,
       isMeetingLocked,
@@ -501,6 +520,7 @@ class UserDropdown extends PureComponent {
     const actions = this.getUsersActions();
 
     const userItemContentsStyle = {};
+    const { role } = currentUser;
 
     userItemContentsStyle[styles.dropdown] = true;
     userItemContentsStyle[styles.userListItem] = !isActionsOpen;
@@ -545,7 +565,7 @@ class UserDropdown extends PureComponent {
           {<UserIcons
             {...{
               user,
-              compact,
+              isModerator: role === ROLE_MODERATOR,
             }}
           />}
         </div>
@@ -591,4 +611,4 @@ class UserDropdown extends PureComponent {
 }
 
 UserDropdown.propTypes = propTypes;
-export default UserDropdown;
+export default lockContextContainer(UserDropdown);

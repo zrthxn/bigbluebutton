@@ -59,7 +59,9 @@
 #   2018-11-22 MNE  Dynamically detect if sudo is needed
 #   2018-12-09 GTR  More logs cleanup
 #   2019-02-08 GTR  Updates for 2.2 after extracting bbb-web to a standalone server application
-#   2019-03-14 GTR  Refactoring and cleanup for 2.2
+#   2019-03-14 FFD  Refactoring and cleanup for 2.2
+#   2019-05-14 FFD  Added more checks for configuration issues
+#   2019-07-08 GTR  Set IP for all recording formats
 
 #set -x
 #set -e
@@ -91,14 +93,14 @@ source /etc/bigbluebutton/bigbluebutton-release
 
 if [ -f /etc/centos-release ]; then
     DISTRIB_ID=centos
-    TOMCAT_SERVICE=tomcat
-    TOMCAT_DIR=/var/lib/$TOMCAT_SERVICE
+    TOMCAT_USER=tomcat
+    TOMCAT_DIR=/var/lib/$TOMCAT_USER
     SERVLET_LOGS=/usr/share/tomcat/logs
     REDIS_SERVICE=redis.service
 else
     . /etc/lsb-release    # Get value for DISTRIB_ID
-    TOMCAT_SERVICE=tomcat7
-    TOMCAT_DIR=/var/lib/$TOMCAT_SERVICE
+    TOMCAT_USER=tomcat7
+    TOMCAT_DIR=/var/lib/$TOMCAT_USER
     SERVLET_LOGS=$TOMCAT_DIR/logs
     REDIS_SERVICE=redis-server
 fi
@@ -112,7 +114,7 @@ FREESWITCH_EVENT_SOCKET=/opt/freeswitch/etc/freeswitch/autoload_configs/event_so
 RED5=red5
 RED5_DIR=/usr/share/$RED5
 
-LTI_DIR=$TOMCAT_DIR/webapps/lti
+LTI_DIR=/usr/share/bbb-lti
 
 if [ -f /usr/share/bbb-web/WEB-INF/classes/bigbluebutton.properties ]; then
     SERVLET_DIR=/usr/share/bbb-web
@@ -147,10 +149,9 @@ BBB_USER=bigbluebutton
 
 if [ ! -f /usr/share/red5/webapps/bigbluebutton/WEB-INF/red5-web.xml ]; then
     echo "#"
-    echo "# BigBlueButton does not appear to be installed.  Could not"
-    echo "# locate:"
+    echo "# BigBlueButton does not appear to be installed.  Could not locate:"
     echo "#"
-    echo "# /usr/share/red5/webapps/bigbluebutton/WEB-INF/red5-web.xml"
+    echo "#    /usr/share/red5/webapps/bigbluebutton/WEB-INF/red5-web.xml"
     exit 1
 fi
 
@@ -315,7 +316,7 @@ stop_bigbluebutton () {
         WEBHOOKS=bbb-webhooks
     fi
 
-    if [ -f /usr/lib/systemd/system/bbb-transcode-akka.service ]; then
+    if [ -f /lib/systemd/system/bbb-transcode-akka.service ]; then
         BBB_TRANSCODE_AKKA=bbb-transcode-akka
     fi
 
@@ -325,6 +326,10 @@ stop_bigbluebutton () {
 
     if [ -f /lib/systemd/system/bbb-web.service ]; then
         BBB_WEB=bbb-web
+    fi
+
+    if [ -d $TOMCAT_DIR ]; then
+      TOMCAT_SERVICE=$TOMCAT_USER
     fi
 
     systemctl stop red5 $TOMCAT_SERVICE nginx freeswitch $REDIS_SERVICE bbb-apps-akka $BBB_TRANSCODE_AKKA bbb-fsesl-akka bbb-rap-archive-worker.service bbb-rap-process-worker.service bbb-rap-publish-worker.service bbb-rap-sanity-worker.service bbb-record-core.timer $HTML5 $WEBHOOKS $ETHERPAD $BBB_WEB
@@ -363,7 +368,7 @@ start_bigbluebutton () {
         WEBHOOKS=bbb-webhooks
     fi
 
-    if [ -f /usr/lib/systemd/system/bbb-transcode-akka.service ]; then
+    if [ -f /lib/systemd/system/bbb-transcode-akka.service ]; then
         BBB_TRANSCODE_AKKA=bbb-transcode-akka
     fi
 
@@ -427,14 +432,26 @@ start_bigbluebutton () {
 }
 
 display_bigbluebutton_status () {
-    units="red5 $TOMCAT_SERVICE nginx freeswitch $REDIS_SERVICE bbb-apps-akka bbb-transcode-akka bbb-fsesl-akka"
+    units="red5 nginx freeswitch $REDIS_SERVICE bbb-apps-akka bbb-transcode-akka bbb-fsesl-akka"
+ 
+    if [ -d $TOMCAT_DIR ]; then
+      units="$units $TOMCAT_USER"
+    fi
 
     if [ -f /usr/lib/systemd/system/bbb-html5.service ]; then
         units="$units mongod bbb-html5 bbb-webrtc-sfu kurento-media-server"
     fi
 
+    if [ -f /usr/share/etherpad-lite/settings.json ]; then
+        units="$units etherpad"
+    fi
+
     if [ -f /lib/systemd/system/bbb-web.service ]; then
         units="$units bbb-web"
+    fi
+
+    if [ -f /lib/systemd/system/bbb-lti.service ]; then
+        units="$units bbb-lti"
     fi
 
     line='——————————————————————►'
@@ -603,6 +620,7 @@ if [[ $SECRET ]]; then
     if [ -f /usr/local/bigbluebutton/bbb-webhooks/config_local.coffee ]; then
         sed -i "s|\(^[ \t]*config.bbb.sharedSecret[ =]*\).*|\1\"$SECRET\"|g" /usr/local/bigbluebutton/bbb-webhooks/config_local.coffee
     fi
+
     if [ -f /usr/local/bigbluebutton/bbb-webhooks/config_local.js ]; then
         sed -i "s|\(^[ \t]*config.bbb.sharedSecret[ =]*\).*|\1\"$SECRET\"|g" /usr/local/bigbluebutton/bbb-webhooks/config_local.js
     fi
@@ -613,6 +631,10 @@ if [[ $SECRET ]]; then
 
     if [ -f /usr/share/bbb-apps-akka/conf/application.conf ]; then
         sed -i "s/sharedSecret[ ]*=[ ]*\"[^\"]*\"/sharedSecret=\"$SECRET\"/g" /usr/share/bbb-apps-akka/conf/application.conf
+    fi
+
+    if [ -f ${LTI_DIR}/WEB-INF/classes/lti-config.properties ]; then
+        sed -i "s/bigbluebuttonSalt=.*/bigbluebuttonSalt=$SECRET/g" ${LTI_DIR}/WEB-INF/classes/lti-config.properties
     fi
 
     echo
@@ -667,9 +689,9 @@ check_configuration() {
         if [ ! -f $file ]; then
             echo "# Error: File not found: $file"
         else
-            if cat $file | grep -v redis.pass | grep -q "^[^=]*=[ ]*$"; then
+            if cat $file | grep -v redis.pass | grep -v redisPassword  | grep -q "^[^=]*=[ ]*$"; then
                 echo "# The following properties in $file have no value:"
-                echo "#     $(grep '^[^=#]*=[ ]*$' $file | sed 's/=//g')"
+                echo "#     $(grep '^[^=#]*=[ ]*$' $file | grep -v redis.pass | grep -v redisPassword | sed 's/=//g')"
             fi
         fi
     done
@@ -879,6 +901,14 @@ check_configuration() {
             echo "#"
         fi
     fi
+
+    if find /usr/share /var/lib/red5 -name "*bbb-common-message*" | sed 's/\([^_]*_\).*/\1/g' | sort | uniq -c | grep -v 1 > /dev/null; then echo 
+        echo
+        echo "# Warning: detected multiple bbb-common-message in the same directory"
+        find /usr/share /var/lib/red5 -name "*bbb-common-message*" | sed 's/\([^_]*_\).*/\1/g' | sort | uniq -c | grep -v 1 
+        echo 
+    fi
+
 }
 
 
@@ -919,14 +949,14 @@ check_state() {
 
     if ! netstat -ant | grep '8090' > /dev/null; then
         print_header
-        NOT_RUNNING_APPS="${NOT_RUNNING_APPS} ${TOMCAT_SERVICE} or grails"
+        NOT_RUNNING_APPS="${NOT_RUNNING_APPS} ${TOMCAT_USER} or grails"
     else
         if ps aux |  ps -aef | grep -v grep | grep grails | grep run-app > /dev/null; then
         print_header
         RUNNING_APPS="${RUNNING_APPS} Grails"
-        echo "#   ${TOMCAT_SERVICE}:      noticed you are running grails run-app instead of ${TOMCAT_SERVICE}"
+        echo "#   ${TOMCAT_USER}:      noticed you are running grails run-app instead of ${TOMCAT_USER}"
         else
-            RUNNING_APPS="${RUNNING_APPS} ${TOMCAT_SERVICE}"
+            RUNNING_APPS="${RUNNING_APPS} ${TOMCAT_USER}"
         fi
     fi
 
@@ -1128,8 +1158,10 @@ check_state() {
     #
     # Check that the servlet container has started properly and has created log files
     #
-    if [ -z "$(ls -A $SERVLET_LOGS)" ]; then
+    if [ -d $TOMCAT_DIR ]; then
+      if [ -z "$(ls -A $SERVLET_LOGS)" ]; then
         echo "#                     empty directory: $SERVLET_LOGS contains no logs"
+      fi
     fi
 
     #
@@ -1244,16 +1276,6 @@ check_state() {
             echo "#"
             echo "# does not match the local IP address ($IP)."
             echo "# (This is OK if you've manually changed the values)"
-            echo
-        fi
-    fi
-
-    if [ -d ${LTI_DIR} ]; then
-        if test ${TOMCAT_DIR}/webapps/lti.war -nt ${LTI_DIR}; then
-            echo "# Error: The updated lti.war did not deploy.  To manually deploy:"
-            echo "#"
-            echo "#   $SUDO touch ${SERVLET_DIR}/lti.war"
-            echo "#"
             echo
         fi
     fi
@@ -1434,12 +1456,38 @@ check_state() {
       echo "#"
       echo "# or, to have openssl generate a strong secret for you (recommended)"
       echo "#"
-      echo "#   sudo bbb-conf --setsecret \$(openssl rand -base64 32 | sed 's/=//g')"
+      echo "#   sudo bbb-conf --setsecret \$(openssl rand -base64 32 | sed 's/=//g' | sed 's/+//g' | sed 's/\///g')"
       echo "#"
       echo "# Be sure to update any integrations with the new shared secret."
       echo "#"
       systemctl stop bbb-web
       exit 1
+    fi
+
+    if ! systemctl show-environment | grep LANG= | grep -q UTF-8; then
+      echo 
+      echo "#"
+      echo "# Warning: Detected that systemctl does not define a UTF-8 language."
+      echo "#"
+      echo "# To temporarily correct, run the command "
+      echo "#"
+      echo "#   sudo systemctl set-environment LANG=en_US.UTF-8"
+      echo "#"
+      echo "# See http://docs.bigbluebutton.org/2.2/install.html#pre-installation-checks"
+      echo "#"
+    fi
+
+    if [ "$(stat -c "%U %G" /var/bigbluebutton)" != "bigbluebutton bigbluebutton" ]; then
+      echo 
+      echo "#"
+      echo "# Warning: The directory"
+      echo "#"
+      echo "#  /var/bigbluebutton"
+      echo "#"
+      echo "# is not owned by bigbluebutton:bigbluebutton.  To fix, run the command"
+      echo "#"
+      echo "#   sudo chown -R bigbluebutton:bigbluebutton /var/bigbluebutton"
+      echo "#"
     fi
 
     exit 0
@@ -1819,18 +1867,25 @@ if [ -n "$HOST" ]; then
     fi
 
     echo -n "Assigning $HOST for playback of recordings: "
-    for metadata in $(find /var/bigbluebutton/published -name metadata.xml); do
+    for metadata in $(find /var/bigbluebutton/published /var/bigbluebutton/unpublished -name metadata.xml); do
         echo -n "."
         # Ensure we update both types of URLs
         sed -i "/<link>/{s/http:\/\/\([^\"\/]*\)\/playback\/$type\([^<]\)/http:\/\/$HOST\/playback\/$type\2/g}" $metadata
         sed -i "/<link>/{s/https:\/\/\([^\"\/]*\)\/playback\/$type\([^<]\)/https:\/\/$HOST\/playback\/$type\2/g}" $metadata
-    done
 
-    for metadata in $(find /var/bigbluebutton/unpublished -name metadata.xml); do
-        echo -n "."
-        # Ensure we update both types of URLs
         sed -i "/<link>/{s/http:\/\/\([^\"\/]*\)\/playback\/$type\([^<]\)/http:\/\/$HOST\/playback\/$type\2/g}" $metadata
         sed -i "/<link>/{s/https:\/\/\([^\"\/]*\)\/playback\/$type\([^<]\)/https:\/\/$HOST\/playback\/$type\2/g}" $metadata
+        sed -i "/<link>/{s/http:\/\/\([^\"\/]*\)\/podcast\/$type\([^<]\)/http:\/\/$HOST\/podcast\/$type\2/g}" $metadata
+        sed -i "/<link>/{s/https:\/\/\([^\"\/]*\)\/podcast\/$type\([^<]\)/https:\/\/$HOST\/podcast\/$type\2/g}" $metadata
+        sed -i "/<link>/{s/http:\/\/\([^\"\/]*\)\/notes\/$type\([^<]\)/http:\/\/$HOST\/notes\/$type\2/g}" $metadata
+        sed -i "/<link>/{s/https:\/\/\([^\"\/]*\)\/notes\/$type\([^<]\)/https:\/\/$HOST\/notes\/$type\2/g}" $metadata
+        sed -i "/<link>/{s/http:\/\/\([^\"\/]*\)\/recording\/$type\([^<]\)/htts:\/\/$HOST\/recording\/$type\2/g}" $metadata
+        sed -i "/<link>/{s/https:\/\/\([^\"\/]*\)\/recording\/$type\([^<]\)/https:\/\/$HOST\/recording\/$type\2/g}" $metadata
+
+        #
+        # Update thumbnail links
+        #
+        sed -i "s/<image width=\"\([0-9]*\)\" height=\"\([0-9]*\)\" alt=\"\([^\"]*\)\">\(http[s]*\):\/\/[^\/]*\/\(.*\)/<image width=\"\1\" height=\"\2\" alt=\"\3\">\4:\/\/$HOST\/\5/g" $metadata
     done
     echo
 
@@ -1860,13 +1915,6 @@ if [ -n "$HOST" ]; then
             chown bigbluebutton:bigbluebutton $KURENTO_CONFIG
         fi
     fi
-
-    #
-    # Update thumbnail links
-    #
-    find /var/bigbluebutton/published -name metadata.xml -exec \
-           sed -i "s/<image width=\"\([0-9]*\)\" height=\"\([0-9]*\)\" alt=\"\([^\"]*\)\">\(http[s]*\):\/\/[^\/]*\/\(.*\)/<image width=\"\1\" height=\"\2\" alt=\"\3\">\4:\/\/$HOST\/\5/g" \
-           '{}' \;
 
     echo "Restarting the BigBlueButton $BIGBLUEBUTTON_RELEASE ..."
     stop_bigbluebutton

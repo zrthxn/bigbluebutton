@@ -19,32 +19,25 @@ public:
     basename: "/html5client"
     askForFeedbackOnLogout: false
     allowUserLookup: false
+    enableNetworkInformation: false
+    enableLimitOfViewersInWebcam: false
+    viewersInWebcam: 8
+    ipv4FallbackDomain: ""
+    allowLogout: true
+    allowFullscreen: true
     defaultSettings:
       application:
         animations: true
         chatAudioAlerts: false
         chatPushAlerts: false
         fallbackLocale: en
+        overrideLocale: null
       audio:
         inputDeviceId: undefined
         outputDeviceId: undefined
       dataSaving:
         viewParticipantsWebcams: true
         viewScreenshare: true
-      cc:
-        backgroundColor: "#FFFFFF"
-        fontColor: "#000000"
-        enabled: false
-        fontFamily: Calibri
-        fontSize: 16px
-        takeOwnership: false
-      participants:
-        muteAll: false
-        lockAll: false
-        microphone: false
-        publicChat: false
-        privateChat: false
-        layout: false
     shortcuts:
       openOptions:
         accesskey: O
@@ -78,11 +71,17 @@ public:
         descId: openStatus
     branding:
       displayBrandingArea: false
-    allowHTML5Moderator: true
-    httpsConnection: false
     connectionTimeout: 60000
     showHelpButton: true
-    enableExternalVideo: true
+    effectiveConnection:
+      - critical
+      - danger
+      - warning
+  externalVideoPlayer:
+    enabled: true
+  networkMonitoring:
+    enableNetworkMonitoring: false
+    packetLostThreshold: 10
   kurento:
     wsUrl: HOST
     chromeDefaultExtensionKey: akgoaoikmbmhcopjgakkcepdgdgkjfbc
@@ -93,23 +92,70 @@ public:
     - window
     - screen
     firefoxScreenshareSource: window
-    cameraConstraints:
-      width:
-        max: 320
-      height:
-        max: 240
+    cameraProfiles:
+      - id: low
+        name: Low quality
+        default: false
+        constraints:
+          width:
+            max: 160
+          height:
+            max: 120
+        bitrate: 100
+      - id: medium
+        name: Medium quality
+        default: true
+        constraints:
+          width:
+            max: 320
+          height:
+            max: 240
+        bitrate: 200
+      - id: high
+        name: High quality
+        default: false
+        constraints:
+          width:
+            max: 640
+          height:
+            max: 480
+        bitrate: 500
+      - id: hd
+        name: High definition
+        default: false
+        constraints:
+          width:
+            max: 1280
+          height:
+            max: 960
+        bitrate: 800
     enableScreensharing: true
     enableVideo: true
     enableVideoStats: false
     enableVideoMenu: true
     enableListenOnly: true
     autoShareWebcam: false
+  pingPong:
+    clearUsersInSeconds: 30
+    pongTimeInSeconds: 15
   allowOutsideCommands:
     toggleRecording: false
     toggleSelfVoice: false
   poll:
+    enabled: true
     max_custom: 5
+  captions:
+    enabled: true
+    enableDictation: false
+    backgroundColor: "#000000"
+    fontColor: "#FFFFFF"
+    fontFamily: Calibri
+    fontSize: 24px
+    takeOwnership: true
+    lines: 2
+    time: 5000
   chat:
+    enabled: true
     min_message_length: 1
     max_message_length: 5000
     grouping_messages_window: 10000
@@ -146,6 +192,7 @@ public:
     echoTestNumber: '9196'
   presentation:
     defaultPresentationFile: default.pdf
+    panZoomThrottle: 32
     uploadEndpoint: "/bigbluebutton/presentation/upload"
     uploadSizeMin: 0
     uploadSizeMax: 50000000
@@ -187,7 +234,6 @@ public:
   user:
     role_moderator: MODERATOR
     role_viewer: VIEWER
-    role_presenter: PRESENTER
   whiteboard:
     annotations:
       status:
@@ -271,15 +317,24 @@ public:
   clientLog:
     server: { enabled: true, level: info }
     console: { enabled: true, level: debug }
-    external: { enabled: false, level: info, url: https://LOG_HOST/html5Log, method: POST, throttleInterval: 400 }
+    external: { enabled: false, level: info, url: https://LOG_HOST/html5Log, method: POST, throttleInterval: 400, flushOnClose: true }
 private:
   app:
-    captionsChunkLength: 1000
+    host: 127.0.0.1
+    port: 3000
+    localesUrl: /locales
     pencilChunkLength: 100
+    loadSlidesFromHttpAlways: false
+  etherpad:
+    apikey: ETHERPAD_APIKEY
+    version: 1.2.13
+    host: 127.0.0.1
+    port: 9001
   redis:
     host: 127.0.0.1
-    post: '6379'
+    port: '6379'
     timeout: 5000
+    password: null
     debug: false
     channels:
       toAkkaApps: to-akka-apps-redis-channel
@@ -288,6 +343,7 @@ private:
     - to-html5-redis-channel
     - from-akka-apps-*
     - from-third-party-redis-channel
+    - from-etherpad-redis-channel
     async:
     - from-akka-apps-wb-redis-channel
     ignored:
@@ -295,3 +351,24 @@ private:
     - DoLatencyTracerMsg
   serverLog:
     level: info
+  minBrowserVersions:
+    - browser: chrome
+      version: 59
+    - browser: chromeMobileIOS
+      version: Infinity
+    - browser: firefox
+      version: 52
+    - browser: firefoxMobile
+      version: 52
+    - browser: edge
+      version: 17
+    - browser: ie
+      version: Infinity
+    - browser: safari
+      version: [11, 1]
+    - browser: mobileSafari
+      version: [11, 1]
+    - browser: opera
+      version: 46
+    - browser: electron
+      version: [0, 36]
